@@ -5,6 +5,7 @@ soundfile
 librosa
 scikit-learn
 webrtcvad
+setuptools<81  # webrtcvad imports pkg_resources, removed in setuptools 81+
 anthropic
 pandas
 numpy
