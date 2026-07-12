@@ -1,0 +1,14 @@
+# Data — large, downloaded separately (see README)
+data/
+
+# Model checkpoints and generated reports
+checkpoints/
+reports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store

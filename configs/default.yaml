@@ -1,0 +1,44 @@
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  features_dir: "data/features"
+  manifests_dir: "data/manifests"
+  datasets:
+    train: "asvspoof5"
+    eval_generalization:
+      - "p2v"
+      - "in_the_wild"
+
+preprocessing:
+  sample_rate: 16000
+  chunk_seconds: 4.0
+  vad_aggressiveness: 2   # 0-3, higher = more aggressive silence trimming
+
+features:
+  model_name: "facebook/wav2vec2-xls-r-300m"
+  pooling: "mean"          # mean | attention
+  layer: -1                # which transformer layer to pool from
+  cache_embeddings: true
+
+model:
+  embedding_dim: 1024
+  hidden_dim: 256
+  num_attention_heads: 32
+  compression_dim: 128
+  dropout: 0.1
+
+training:
+  batch_size: 32
+  learning_rate: 1.0e-4
+  ssl_learning_rate_scale: 0.05   # scale factor for SSL front-end LR
+  warmup_epochs: 2
+  max_epochs: 30
+  early_stopping_patience: 5
+
+explain:
+  anthropic_model: "claude-sonnet-4-6"
+  max_tokens: 300
+
+eval:
+  eer_threshold_search_points: 1000
+  rationale_sample_size: 50   # number of flagged clips to generate rationales for
