@@ -37,9 +37,14 @@ end-to-end working pipeline, then run it on real data.
 
 1. **Real acoustic evidence** — `src/eval/harness.py` currently passes
    placeholder `-1.0` values for `pitch_variance` and `spectral_flatness` to
-   the rationale agent. Add a small feature module (librosa: pitch via
-   `pyin`/`yin`, spectral flatness) computed on flagged clips' audio and pass
-   real values through, so rationales are grounded in actual evidence.
+   the rationale agent. Add `src/explain/acoustic_evidence.py` computing, per
+   flagged clip: pitch variance (librosa `pyin`), spectral flatness, 95%
+   spectral roll-off frequency, unvoiced-segment energy ratio (energy in
+   VAD-rejected frames — breaths/silences, where vocoder artifacts hide —
+   relative to total), and high-band energy fraction (>4 kHz). Basic
+   pitch/flatness alone lets high-end deepfakes pass and yields generic
+   rationales; the judge needs specific numbers to grade against.
+   `DetectionEvidence` and both LLM prompts are extended to match.
    `high_attention_time_ranges` stays empty while `LinearHead` is the
    classifier (documented, not silently fake).
 2. **Import hygiene** — replace the `sys.path.append` hacks and bare
@@ -51,14 +56,22 @@ end-to-end working pipeline, then run it on real data.
 4. **Smoke config** — `configs/smoke.yaml`: `facebook/wav2vec2-base` (768-dim,
    ~360 MB) instead of xls-r-300m (1024-dim, 1.2 GB), few epochs, small
    rationale sample. `configs/default.yaml` stays as the real-run config.
-5. **Split handling** — trained on ASVspoof5 train partition, validated on a
+5. **Overlapping chunking** — hard-slicing audio at exact 4 s boundaries can
+   bisect a boundary artifact (exactly where generative models glitch).
+   `preprocess.py` gains a `chunk_stride_seconds` config knob (sliding window
+   with overlap). Default 2.0 s (50% overlap): every instant of audio is fully
+   interior to at least one window, so no artifact is only ever seen at a
+   window edge, at 2× extraction cost rather than the 4× of a 1 s stride.
+   If out-of-domain results look implausibly poor, eval sets can be cheaply
+   re-extracted at a finer stride to rule out boundary loss.
+6. **Split handling** — trained on ASVspoof5 train partition, validated on a
    held-out portion, dev partition used as the in-domain test set. Real
    ASVspoof5 protocol filenames/columns verified against the downloaded
    protocol files before wiring (README's assumed format may not match).
 
 ## Pipeline stages (unchanged from README)
 
-manifest → preprocess (resample 16 kHz, VAD trim, 4 s chunks) → wav2vec2
+manifest → preprocess (resample 16 kHz, VAD trim, 4 s chunks / 2 s stride) → wav2vec2
 embeddings (mean-pooled, cached .npy) → train classifier head (ASVspoof5
 only) → eval harness (in-domain EER vs out-of-domain EER = generalization
 gap) → rationale agent + LLM judge on flagged clips.
