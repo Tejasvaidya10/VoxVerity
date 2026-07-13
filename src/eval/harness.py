@@ -16,19 +16,15 @@ Usage:
 import argparse
 import csv
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 import yaml
 
-sys.path.append(str(Path(__file__).resolve().parent.parent / "models"))
-sys.path.append(str(Path(__file__).resolve().parent.parent / "explain"))
-
-from detector import build_head          # noqa: E402
-from metrics import summarize_scores      # noqa: E402
-from rationale_agent import DetectionEvidence, generate_rationale, score_rationale  # noqa: E402
+from src.models.detector import build_head
+from src.eval.metrics import summarize_scores
+from src.explain.rationale_agent import DetectionEvidence, generate_rationale, score_rationale
 
 
 def load_model(config: dict, checkpoint_path: Path, device: str):

@@ -13,7 +13,7 @@ import torch
 import yaml
 from torch.utils.data import Dataset, DataLoader
 
-from detector import build_head
+from src.models.detector import build_head
 
 
 class EmbeddingDataset(Dataset):
