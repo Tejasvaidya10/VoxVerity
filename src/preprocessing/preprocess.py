@@ -90,7 +90,7 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
         stem = Path(row["path"]).stem
         for j, chunk in enumerate(chunks):
             out_path = out_audio_dir / f"{stem}_{j}.wav"
-            sf.write(out_path, chunk, sample_rate)
+            sf.write(out_path, chunk, sample_rate, subtype="PCM_16")
             out_rows.append({**row, "path": str(out_path), "chunk_idx": j})
 
         if (i + 1) % 200 == 0:
