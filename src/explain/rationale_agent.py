@@ -17,14 +17,23 @@ import anthropic
 class DetectionEvidence:
     file_id: str
     spoof_probability: float
-    pitch_variance: float          # acoustic descriptor, compute upstream with librosa
-    spectral_flatness: float       # higher = more noise-like / synthetic
-    high_attention_time_ranges: list  # e.g. [[2.1, 2.6]] seconds, from MHFAHead weights
+    pitch_variance: float             # Hz^2 over voiced frames (librosa pyin)
+    spectral_flatness: float          # 0..1, higher = noisier/synthetic
+    spectral_rolloff_95_hz: float     # 95% energy roll-off frequency
+    unvoiced_energy_ratio: float      # energy share in unvoiced frames (breaths/silences)
+    high_band_energy_fraction: float  # energy share above 4 kHz
+    high_attention_time_ranges: list  # empty while LinearHead is the classifier
 
 
 RATIONALE_SYSTEM_PROMPT = """You are a forensic audio analyst assistant. Given
 detector evidence for a spoken audio clip, write a 2-3 sentence rationale
 explaining why the clip was flagged as likely synthetic or likely genuine.
+Evidence fields: spoof_probability (detector output), pitch_variance (Hz^2,
+natural speech wobbles; near-zero suggests synthesis), spectral_flatness
+(0-1, higher = noise-like), spectral_rolloff_95_hz (where 95% of energy sits),
+unvoiced_energy_ratio (energy in breaths/silences, where vocoder artifacts
+hide), high_band_energy_fraction (>4 kHz share; vocoders often leave a shelf
+or smear there).
 Ground every claim strictly in the numeric evidence provided. Do not invent
 acoustic details that are not in the evidence. If the evidence is weak or
 ambiguous, say so explicitly rather than overstating confidence."""
@@ -77,6 +86,9 @@ if __name__ == "__main__":
         spoof_probability=0.87,
         pitch_variance=0.9,
         spectral_flatness=0.72,
+        spectral_rolloff_95_hz=6200.0,
+        unvoiced_energy_ratio=0.31,
+        high_band_energy_fraction=0.18,
         high_attention_time_ranges=[[2.1, 2.6]],
     )
     rationale = generate_rationale(client, example_evidence)

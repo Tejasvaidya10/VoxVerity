@@ -24,7 +24,18 @@ import yaml
 
 from src.models.detector import build_head
 from src.eval.metrics import summarize_scores
+from src.explain.acoustic_evidence import compute_evidence_from_file
 from src.explain.rationale_agent import DetectionEvidence, generate_rationale, score_rationale
+
+
+def build_evidence(path: str, spoof_probability: float) -> DetectionEvidence:
+    feats = compute_evidence_from_file(path)
+    return DetectionEvidence(
+        file_id=Path(path).stem,
+        spoof_probability=spoof_probability,
+        high_attention_time_ranges=[],  # LinearHead has no attention map
+        **feats,
+    )
 
 
 def load_model(config: dict, checkpoint_path: Path, device: str):
@@ -82,21 +93,19 @@ def run_rationale_eval(config: dict, generalization_results: dict, sample_size: 
             if score > 0.5:
                 all_flagged.append((dataset_name, path, score))
 
+    all_flagged.sort(key=lambda x: -x[2])  # highest-confidence flags first
     sample = all_flagged[:sample_size]
     judged_results = []
     for dataset_name, path, score in sample:
-        # NOTE: pitch_variance / spectral_flatness are placeholders here —
-        # compute these upstream with librosa on the raw audio and pass them
-        # through, or extend score_manifest to return them alongside scores.
-        evidence = DetectionEvidence(
-            file_id=Path(path).stem,
-            spoof_probability=score,
-            pitch_variance=-1.0,
-            spectral_flatness=-1.0,
-            high_attention_time_ranges=[],
-        )
-        rationale = generate_rationale(client, evidence)
-        judged = score_rationale(client, evidence, rationale)
+        try:
+            evidence = build_evidence(path, score)
+        except Exception as e:
+            print(f"Skipping rationale for {path}: {e}")
+            continue
+        model = config["explain"]["anthropic_model"]
+        rationale = generate_rationale(client, evidence, model=model,
+                                       max_tokens=config["explain"]["max_tokens"])
+        judged = score_rationale(client, evidence, rationale, model=model)
         judged_results.append({
             "dataset": dataset_name, "path": path, "score": score,
             "rationale": rationale, "judge": judged,
