@@ -12,6 +12,7 @@ data:
 preprocessing:
   sample_rate: 16000
   chunk_seconds: 4.0
+  chunk_stride_seconds: 2.0   # sliding-window stride; = chunk_seconds for no overlap
   vad_aggressiveness: 2   # 0-3, higher = more aggressive silence trimming
 
 features:

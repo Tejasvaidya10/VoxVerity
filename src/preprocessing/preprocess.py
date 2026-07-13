@@ -49,21 +49,28 @@ def vad_trim(audio: np.ndarray, sr: int, aggressiveness: int) -> np.ndarray:
     return audio[start_sample:end_sample]
 
 
-def chunk_audio(audio: np.ndarray, sr: int, chunk_seconds: float) -> list:
+def chunk_audio(audio: np.ndarray, sr: int, chunk_seconds: float,
+                stride_seconds: float | None = None) -> list:
+    """Sliding-window chunking. Overlap keeps boundary artifacts fully
+    interior to at least one window (generative glitches often sit at
+    seams a hard slice would bisect)."""
     chunk_len = int(sr * chunk_seconds)
+    stride = int(sr * (stride_seconds if stride_seconds else chunk_seconds))
     if len(audio) <= chunk_len:
         # pad short clips to full chunk length
         padded = np.zeros(chunk_len, dtype=np.float32)
         padded[:len(audio)] = audio
         return [padded]
-    chunks = []
-    for start in range(0, len(audio) - chunk_len + 1, chunk_len):
-        chunks.append(audio[start:start + chunk_len])
-    return chunks
+    starts = list(range(0, len(audio) - chunk_len + 1, stride))
+    last_start = len(audio) - chunk_len
+    if starts[-1] != last_start:
+        starts.append(last_start)  # end-aligned window so the tail is covered
+    return [audio[s:s + chunk_len] for s in starts]
 
 
 def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path: Path,
-                      sample_rate: int, chunk_seconds: float, vad_aggressiveness: int) -> None:
+                      sample_rate: int, chunk_seconds: float, vad_aggressiveness: int,
+                      chunk_stride_seconds: float | None = None) -> None:
     out_audio_dir.mkdir(parents=True, exist_ok=True)
     out_manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -75,7 +82,7 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
         try:
             audio = load_and_resample(row["path"], sample_rate)
             audio = vad_trim(audio, sample_rate, vad_aggressiveness)
-            chunks = chunk_audio(audio, sample_rate, chunk_seconds)
+            chunks = chunk_audio(audio, sample_rate, chunk_seconds, chunk_stride_seconds)
         except Exception as e:
             print(f"Skipping {row['path']}: {e}")
             continue
@@ -104,10 +111,13 @@ if __name__ == "__main__":
     parser.add_argument("--out-manifest", type=Path, required=True)
     parser.add_argument("--sample-rate", type=int, default=16000)
     parser.add_argument("--chunk-seconds", type=float, default=4.0)
+    parser.add_argument("--chunk-stride-seconds", type=float, default=None,
+                        help="sliding-window stride; defaults to chunk length (no overlap)")
     parser.add_argument("--vad-aggressiveness", type=int, default=2)
     args = parser.parse_args()
 
     process_manifest(
         args.manifest, args.out_audio_dir, args.out_manifest,
         args.sample_rate, args.chunk_seconds, args.vad_aggressiveness,
+        chunk_stride_seconds=args.chunk_stride_seconds,
     )
