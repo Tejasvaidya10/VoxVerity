@@ -21,3 +21,6 @@ __pycache__/
 
 # Planning docs stay local
 docs/superpowers/plans/
+
+# Secrets
+.env
