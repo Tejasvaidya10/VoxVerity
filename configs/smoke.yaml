@@ -1,0 +1,46 @@
+# Small/fast variant of default.yaml for the end-to-end smoke run.
+data:
+  raw_dir: "data/raw_smoke"
+  processed_dir: "data/processed_smoke"
+  features_dir: "data/features_smoke"
+  manifests_dir: "data/manifests_smoke"
+  datasets:
+    train: "asvspoof5"
+    eval_generalization:
+      - "p2v"
+      - "in_the_wild"
+
+preprocessing:
+  sample_rate: 16000
+  chunk_seconds: 2.0
+  chunk_stride_seconds: 1.0
+  vad_aggressiveness: 1
+
+features:
+  model_name: "facebook/wav2vec2-base"   # 768-dim, ~360MB download
+  pooling: "mean"
+  layer: -1
+  cache_embeddings: true
+
+model:
+  embedding_dim: 768
+  hidden_dim: 128
+  num_attention_heads: 32
+  compression_dim: 128
+  dropout: 0.1
+
+training:
+  batch_size: 16
+  learning_rate: 1.0e-3
+  ssl_learning_rate_scale: 0.05
+  warmup_epochs: 0
+  max_epochs: 10
+  early_stopping_patience: 3
+
+explain:
+  anthropic_model: "claude-sonnet-4-6"
+  max_tokens: 300
+
+eval:
+  eer_threshold_search_points: 1000
+  rationale_sample_size: 3
