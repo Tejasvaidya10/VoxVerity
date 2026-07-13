@@ -40,13 +40,43 @@ def extract_embedding(path: str, extractor, model, device: str, layer: int, pool
     return pooled.cpu().numpy()
 
 
+@torch.no_grad()
+def extract_batch(audios: list, extractor, model, device: str, layer: int,
+                  pooling: str) -> np.ndarray:
+    """Batched extraction for equal-length chunks (padding handles stragglers)."""
+    inputs = extractor(audios, sampling_rate=16000, return_tensors="pt",
+                       padding=True).to(device)
+    outputs = model(**inputs, output_hidden_states=True)
+    hidden = outputs.hidden_states[layer]  # (batch, time, dim)
+    if pooling in ("mean", "attention"):
+        pooled = hidden.mean(dim=1)
+    else:
+        raise ValueError(f"Unknown pooling: {pooling}")
+    return pooled.cpu().numpy()
+
+
 def process_manifest(manifest_path: Path, out_dir: Path, model_name: str,
-                      layer: int, pooling: str, device: str) -> None:
+                      layer: int, pooling: str, device: str,
+                      batch_size: int = 16) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     extractor, model = load_model(model_name, device)
 
     with open(manifest_path) as f:
         rows = list(csv.DictReader(f))
+
+    pending = []  # (out_path, audio) accumulated until a full batch
+    done = 0
+
+    def flush():
+        nonlocal done
+        if not pending:
+            return
+        embs = extract_batch([a for _, a in pending], extractor, model,
+                             device, layer, pooling)
+        for (out_path, _), emb in zip(pending, embs):
+            np.save(out_path, emb)
+        done += len(pending)
+        pending.clear()
 
     for i, row in enumerate(rows):
         stem = Path(row["path"]).stem
@@ -54,12 +84,15 @@ def process_manifest(manifest_path: Path, out_dir: Path, model_name: str,
         if out_path.exists():
             continue
         try:
-            emb = extract_embedding(row["path"], extractor, model, device, layer, pooling)
-            np.save(out_path, emb)
+            audio, _ = sf.read(row["path"], dtype="float32")
+            pending.append((out_path, audio))
         except Exception as e:
             print(f"Skipping {row['path']}: {e}")
-        if (i + 1) % 200 == 0:
-            print(f"Extracted {i + 1}/{len(rows)}")
+        if len(pending) >= batch_size:
+            flush()
+        if (i + 1) % 2000 == 0:
+            print(f"Progress {i + 1}/{len(rows)} ({done} newly extracted)", flush=True)
+    flush()
 
     print(f"Done. Embeddings cached in {out_dir}")
 
@@ -72,6 +105,8 @@ if __name__ == "__main__":
     parser.add_argument("--layer", type=int, default=-1)
     parser.add_argument("--pooling", default="mean", choices=["mean", "attention"])
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--batch-size", type=int, default=16)
     args = parser.parse_args()
 
-    process_manifest(args.manifest, args.out_dir, args.model_name, args.layer, args.pooling, args.device)
+    process_manifest(args.manifest, args.out_dir, args.model_name, args.layer,
+                     args.pooling, args.device, batch_size=args.batch_size)
