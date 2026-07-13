@@ -1,0 +1,5 @@
+T_4850 T_0000000000 F - - - AC3 A05 spoof -
+T_0858 T_0000000001 M - - - AC3 A07 spoof -
+T_4075 T_0000000002 M - - - AC2 A04 spoof -
+T_3734 T_0000000011 F - - - - bonafide bonafide -
+T_2386 T_0000000019 M - - - - bonafide bonafide -

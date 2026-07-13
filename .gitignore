@@ -1,5 +1,5 @@
-# Data — large, downloaded separately (see README)
-data/
+# Data — large, downloaded separately (see README); root-level only, src/data is code
+/data/
 
 # Model checkpoints and generated reports
 checkpoints/
