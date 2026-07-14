@@ -86,15 +86,12 @@ def run_rationale_eval(config: dict, generalization_results: dict, sample_size: 
     import anthropic
     client = anthropic.Anthropic()
 
-    # sample flagged (high spoof-probability) clips from the out-of-domain results
-    all_flagged = []
-    for dataset_name, result in generalization_results.items():
-        for path, score in result["per_file_scores"].items():
-            if score > 0.5:
-                all_flagged.append((dataset_name, path, score))
+    # Sample flagged (high spoof-probability) clips, stratified across datasets.
+    # A global top-N sort would hand every slot to the in-domain set (its scores
+    # are the most confident), leaving the out-of-domain failures — the ones this
+    # project exists to explain — unexplained.
+    sample = sample_flagged(generalization_results, sample_size)
 
-    all_flagged.sort(key=lambda x: -x[2])  # highest-confidence flags first
-    sample = all_flagged[:sample_size]
     judged_results = []
     for dataset_name, path, score in sample:
         try:
@@ -111,6 +108,34 @@ def run_rationale_eval(config: dict, generalization_results: dict, sample_size: 
             "rationale": rationale, "judge": judged,
         })
     return judged_results
+
+
+def sample_flagged(generalization_results: dict, sample_size: int) -> list:
+    """Pick flagged clips evenly across datasets, highest-confidence first within
+    each. Returns [(dataset_name, path, score), ...]."""
+    by_dataset = {}
+    for dataset_name, result in generalization_results.items():
+        flagged = [(dataset_name, path, score)
+                   for path, score in result["per_file_scores"].items() if score > 0.5]
+        flagged.sort(key=lambda x: -x[2])
+        if flagged:
+            by_dataset[dataset_name] = flagged
+
+    if not by_dataset:
+        return []
+
+    per_dataset = max(1, sample_size // len(by_dataset))
+    sample = []
+    for flagged in by_dataset.values():
+        sample.extend(flagged[:per_dataset])
+
+    # backfill any remaining slots from the largest pools
+    if len(sample) < sample_size:
+        taken = {id(x) for x in sample}
+        leftovers = [x for flagged in by_dataset.values() for x in flagged[per_dataset:]]
+        leftovers.sort(key=lambda x: -x[2])
+        sample.extend(leftovers[:sample_size - len(sample)])
+    return sample[:sample_size]
 
 
 def main():
