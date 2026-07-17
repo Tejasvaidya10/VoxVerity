@@ -7,6 +7,8 @@ stops predicting bonafide-vs-spoof. See
 docs/superpowers/specs/2026-07-17-channel-augmentation-design.md.
 """
 
+import argparse
+import csv
 import subprocess
 import tempfile
 from pathlib import Path
@@ -77,3 +79,67 @@ def apply_bandlimit(audio: np.ndarray, sr: int, rng: np.random.Generator) -> np.
 
 
 TRANSFORMS = {"codec": apply_codec, "noise": apply_noise, "bandlimit": apply_bandlimit}
+
+
+def augment_manifest(manifest_path: Path, out_audio_dir: Path,
+                     out_manifest_path: Path, seed: int = 42,
+                     augment_prob: float = 0.5) -> None:
+    out_audio_dir.mkdir(parents=True, exist_ok=True)
+    out_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(manifest_path) as f:
+        rows = list(csv.DictReader(f))
+
+    names = sorted(TRANSFORMS)
+    out_rows, counts, failures = [], {"none": 0}, 0
+    for idx, row in enumerate(rows):
+        rng = np.random.default_rng([seed, idx])
+        if rng.random() >= augment_prob:
+            out_rows.append({**row, "augmentation": "none"})
+            counts["none"] += 1
+            continue
+        name = names[rng.integers(len(names))]
+        try:
+            audio, sr = sf.read(row["path"], dtype="float32")
+            out = TRANSFORMS[name](np.asarray(audio), sr, rng)
+        except Exception as e:
+            if name == "codec":  # spec: codec failures fall back to noise
+                try:
+                    name = "noise"
+                    out = apply_noise(np.asarray(audio), sr, rng)
+                except Exception:
+                    failures += 1
+                    out_rows.append({**row, "augmentation": "none"})
+                    continue
+            else:
+                failures += 1
+                print(f"Augment failed for {row['path']}: {e}")
+                out_rows.append({**row, "augmentation": "none"})
+                continue
+        out_path = out_audio_dir / f"{Path(row['path']).stem}__aug_{name}.wav"
+        sf.write(out_path, out, sr, subtype="PCM_16")
+        out_rows.append({**row, "path": str(out_path), "augmentation": name})
+        counts[name] = counts.get(name, 0) + 1
+
+        if (idx + 1) % 2000 == 0:
+            print(f"Augmented {idx + 1}/{len(rows)}", flush=True)
+
+    fieldnames = list(rows[0].keys()) + ["augmentation"]
+    with open(out_manifest_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(out_rows)
+    print(f"Wrote {len(out_rows)} rows to {out_manifest_path}; "
+          f"counts={counts}; failures={failures}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--out-audio-dir", type=Path, required=True)
+    parser.add_argument("--out-manifest", type=Path, required=True)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--augment-prob", type=float, default=0.5)
+    args = parser.parse_args()
+    augment_manifest(args.manifest, args.out_audio_dir, args.out_manifest,
+                     seed=args.seed, augment_prob=args.augment_prob)
