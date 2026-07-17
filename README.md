@@ -63,6 +63,32 @@ faithfulness by an LLM judge. Mean judge score **4.54 / 5**.
 
 Full report: `reports/eval_report.json`.
 
+### Failure analysis (In-the-Wild)
+
+At the EER operating point, errors split evenly (13.3% false alarms, 13.3%
+misses), but they are not random:
+
+- **Missed fakes cluster on speakers with degraded source audio.** Worst
+  per-speaker miss rates: Robert Kardashian 64%, Trump 40%, JFK 36%, Alan
+  Watts 35%, Obama 35%. JFK and Watts are archival, band-limited recordings —
+  their deepfakes inherit that channel character.
+- **False alarms cluster on clean, produced audio.** Norm MacDonald and John
+  Cleese each have ~60% of their *genuine* clips flagged (studio-processed
+  broadcast material).
+- **The operating threshold collapses out of domain**: ~0.66 in-domain vs
+  0.0029 on In-the-Wild — the entire score distribution shifts toward "real",
+  so scores are not calibrated across domains.
+
+Interpretation: the detector substantially uses **recording quality as a proxy
+for authenticity**. In ASVspoof5, bonafide speech carries natural recording
+imperfections while spoofs are clean TTS output; the model learned that
+association. In the wild it inverts — noisy/archival fakes read as genuine,
+clean genuine audio reads as synthetic. This is consistent with the EER
+decomposition above (robust to unseen attacks, broken by channel shift) and
+makes the remedy concrete: augmentation that decorrelates channel quality from
+the label (codec re-encoding at varied bitrates, additive noise on spoofs,
+band-limiting of bonafide speech).
+
 ## Setup
 
 ```bash
