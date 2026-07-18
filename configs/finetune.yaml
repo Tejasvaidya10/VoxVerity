@@ -1,0 +1,42 @@
+# Phase 4: partial fine-tuning config. data/preprocessing/explain/eval match
+# default.yaml; features section is gone (no cached embeddings in this phase).
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  features_dir: "data/features"
+  manifests_dir: "data/manifests"
+  datasets:
+    train: "asvspoof5"
+    eval_generalization:
+      - "in_the_wild"
+
+preprocessing:
+  sample_rate: 16000
+  chunk_seconds: 4.0
+  chunk_stride_seconds: 2.0
+  vad_aggressiveness: 2
+
+finetune:
+  model_name: "facebook/wav2vec2-base"
+  n_frozen_layers: 6
+  batch_size: 8
+  max_epochs: 2
+  val_every_steps: 5000
+  num_workers: 2
+  learning_rate: 1.0e-4          # head
+  ssl_learning_rate_scale: 0.05  # backbone LR = learning_rate * this
+
+model:
+  embedding_dim: 768
+  hidden_dim: 128
+  num_attention_heads: 32
+  compression_dim: 128
+  dropout: 0.1
+
+explain:
+  anthropic_model: "claude-sonnet-4-6"
+  max_tokens: 300
+
+eval:
+  eer_threshold_search_points: 1000
+  rationale_sample_size: 50
