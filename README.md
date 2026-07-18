@@ -34,7 +34,24 @@ audio-deepfake-detection/
     harness.py                  # cross-dataset eval + rationale quality scoring
 ```
 
-## Results
+## Project timeline
+
+The work happened in deliberate order — research first, engineering second:
+
+1. **Phase 1 — Measure** (baseline model): quantify the benchmark-to-real-world
+   generalization gap.
+2. **Phase 2 — Diagnose** (failure analysis): find *why* the model fails in the
+   wild, per error direction and per speaker.
+3. **Phase 3 — Test the diagnosis** (channel-augmentation experiment): a
+   pre-registered hypothesis test of the identified mechanism.
+4. **Phase 4 — Engineer for performance** (fine-tuning, in progress): with the
+   research questions answered, fine-tune the SSL front-end with attention
+   pooling to push the numbers.
+
+Phases 1–3 are below; each has its checkpoint and full report preserved
+(`checkpoints/`, `reports/`).
+
+## Phase 1 — Results: the generalization gap
 
 Detector: frozen `wav2vec2-xls-r-300m` embeddings (mean-pooled, 4s windows /
 2s stride) → MLP head. Trained on ASVspoof5 train partition only (attacks
@@ -63,7 +80,7 @@ faithfulness by an LLM judge. Mean judge score **4.54 / 5**.
 
 Full report: `reports/eval_report.json`.
 
-### Failure analysis (In-the-Wild)
+## Phase 2 — Failure analysis (In-the-Wild)
 
 At the EER operating point, errors split evenly (13.3% false alarms, 13.3%
 misses), but they are not random:
@@ -89,7 +106,7 @@ makes the remedy concrete: augmentation that decorrelates channel quality from
 the label (codec re-encoding at varied bitrates, additive noise on spoofs,
 band-limiting of bonafide speech).
 
-### Experiment: channel augmentation
+## Phase 3 — Experiment: channel augmentation
 
 Hypothesis test: if the detector keys on recording quality, decorrelating
 quality from labels at training time (50% of train chunks put through a random
@@ -124,6 +141,19 @@ fine-tuning the SSL front-end, MHFA on frame-level features.
 
 Rationale quality on the augmented run: 50 stratified clips, mean judge score
 **4.73 / 5**. Full report: `reports/eval_report_aug.json`.
+
+## Phase 4 — Fine-tuning (in progress)
+
+With the research phases complete, this phase is engineering: partial
+fine-tuning of `wav2vec2-base` (CNN extractor + bottom 6 transformer layers
+frozen, top 6 tuned) with a trainable MHFA attention-pooling head replacing
+mean pooling, trained on the Phase-3 augmented manifest. Success bar carried
+forward: In-the-Wild < 10% with dev < 3%, now against the stronger Phase-3
+baseline (11.30 / 1.18). Known limitation, stated up front: this swaps the
+backbone (300M frozen → 95M tuned) and adds attention pooling at once, so the
+comparison does not isolate a single variable — the goal here is a better
+detector, not another controlled experiment. Results will be added when the
+run completes.
 
 ## Setup
 
