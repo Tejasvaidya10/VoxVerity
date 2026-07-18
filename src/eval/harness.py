@@ -72,13 +72,32 @@ def score_manifest(model, manifest_path: Path, features_dir: Path, device: str) 
     return {"metrics": metrics, "per_file_scores": per_file_scores}
 
 
-def run_generalization_eval(config: dict, model, manifests: list, features_dir: Path, device: str) -> dict:
+def score_manifest_ft(model, manifest_path: Path, device: str) -> dict:
+    """Score a manifest by running audio through a fine-tuned end-to-end model
+    (no cached embeddings)."""
+    from src.models.finetune import score_manifest_audio
+    with open(manifest_path) as f:
+        rows = list(csv.DictReader(f))
+    per_file_scores = score_manifest_audio(model, rows, device=device)
+    label_by_path = {r["path"]: r["label"] for r in rows}
+    bonafide_scores, spoof_scores = [], []
+    for path, score in per_file_scores.items():
+        (spoof_scores if label_by_path[path] == "spoof" else bonafide_scores).append(score)
+    metrics = summarize_scores(np.array(bonafide_scores), np.array(spoof_scores))
+    return {"metrics": metrics, "per_file_scores": per_file_scores}
+
+
+def run_generalization_eval(config: dict, model, manifests: list, features_dir: Path,
+                            device: str, finetuned: bool = False) -> dict:
     results = {}
     for manifest_path in manifests:
         dataset_name = Path(manifest_path).stem
-        print(f"Scoring {dataset_name}...")
-        results[dataset_name] = score_manifest(model, Path(manifest_path), features_dir, device)
-        print(f"  EER: {results[dataset_name]['metrics']['eer_pct']:.2f}%")
+        print(f"Scoring {dataset_name}...", flush=True)
+        if finetuned:
+            results[dataset_name] = score_manifest_ft(model, Path(manifest_path), device)
+        else:
+            results[dataset_name] = score_manifest(model, Path(manifest_path), features_dir, device)
+        print(f"  EER: {results[dataset_name]['metrics']['eer_pct']:.2f}%", flush=True)
     return results
 
 
@@ -141,21 +160,38 @@ def sample_flagged(generalization_results: dict, sample_size: int) -> list:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default.yaml")
-    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, default=None,
+                        help="MLP-head checkpoint scored against cached embeddings")
+    parser.add_argument("--finetuned-checkpoint", type=Path, default=None,
+                        help="FinetuneModel checkpoint scored end-to-end from audio")
     parser.add_argument("--manifests", nargs="+", required=True,
                          help="First manifest should be the in-domain (ASVspoof5) test set")
-    parser.add_argument("--features-dir", type=Path, required=True)
+    parser.add_argument("--features-dir", type=Path, default=None,
+                        help="required with --checkpoint; unused with --finetuned-checkpoint")
     parser.add_argument("--out-report", type=Path, default=Path("reports/eval_report.json"))
     parser.add_argument("--skip-rationales", action="store_true")
     args = parser.parse_args()
 
+    if bool(args.checkpoint) == bool(args.finetuned_checkpoint):
+        parser.error("provide exactly one of --checkpoint / --finetuned-checkpoint")
+    if args.checkpoint and not args.features_dir:
+        parser.error("--features-dir is required with --checkpoint")
+
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = load_model(config, args.checkpoint, device)
+    device = "mps" if torch.backends.mps.is_available() else (
+        "cuda" if torch.cuda.is_available() else "cpu")
+    if args.finetuned_checkpoint:
+        from src.models.finetune import load_finetuned
+        model = load_finetuned(args.finetuned_checkpoint, config["model"], device)
+        model.eval()
+    else:
+        model = load_model(config, args.checkpoint, device)
 
-    generalization_results = run_generalization_eval(config, model, args.manifests, args.features_dir, device)
+    generalization_results = run_generalization_eval(
+        config, model, args.manifests, args.features_dir, device,
+        finetuned=args.finetuned_checkpoint is not None)
 
     report = {
         "generalization": {

@@ -41,28 +41,44 @@ def main():
 
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="configs/default.yaml")
-    p.add_argument("--checkpoint", type=Path, required=True)
+    p.add_argument("--checkpoint", type=Path, default=None)
+    p.add_argument("--finetuned-checkpoint", type=Path, default=None)
     p.add_argument("--manifest", type=Path, required=True)
-    p.add_argument("--features-dir", type=Path, required=True)
+    p.add_argument("--features-dir", type=Path, default=None)
     p.add_argument("--threshold", type=float, required=True)
     p.add_argument("--min-count", type=int, default=50)
     args = p.parse_args()
 
-    config = yaml.safe_load(open(args.config))
-    model = build_head(config["model"])
-    model.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))
-    model.eval()
+    if bool(args.checkpoint) == bool(args.finetuned_checkpoint):
+        p.error("provide exactly one of --checkpoint / --finetuned-checkpoint")
 
-    scores, labels, speakers = [], [], []
-    with torch.no_grad():
-        for r in csv.DictReader(open(args.manifest)):
-            f = args.features_dir / f"{Path(r['path']).stem}.npy"
-            if not f.exists():
-                continue
-            emb = torch.from_numpy(np.load(f).astype(np.float32)).unsqueeze(0)
-            scores.append(1 / (1 + np.exp(-model(emb).item())))
-            labels.append(r["label"])
-            speakers.append(r["speaker_id"])
+    config = yaml.safe_load(open(args.config))
+    rows = list(csv.DictReader(open(args.manifest)))
+
+    if args.finetuned_checkpoint:
+        from src.models.finetune import load_finetuned, score_manifest_audio
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        model = load_finetuned(args.finetuned_checkpoint, config["model"], device)
+        per_file = score_manifest_audio(model, rows, device=device)
+        scores = [per_file[r["path"]] for r in rows if r["path"] in per_file]
+        labels = [r["label"] for r in rows if r["path"] in per_file]
+        speakers = [r["speaker_id"] for r in rows if r["path"] in per_file]
+    else:
+        if not args.features_dir:
+            p.error("--features-dir is required with --checkpoint")
+        model = build_head(config["model"])
+        model.load_state_dict(torch.load(args.checkpoint, map_location="cpu"))
+        model.eval()
+        scores, labels, speakers = [], [], []
+        with torch.no_grad():
+            for r in rows:
+                f = args.features_dir / f"{Path(r['path']).stem}.npy"
+                if not f.exists():
+                    continue
+                emb = torch.from_numpy(np.load(f).astype(np.float32)).unsqueeze(0)
+                scores.append(1 / (1 + np.exp(-model(emb).item())))
+                labels.append(r["label"])
+                speakers.append(r["speaker_id"])
 
     out = error_breakdown(scores, labels, speakers, args.threshold)
     print(f"n={len(scores)} threshold={args.threshold}")
