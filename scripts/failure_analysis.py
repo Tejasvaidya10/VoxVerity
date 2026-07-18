@@ -33,6 +33,8 @@ def error_breakdown(scores, labels, speakers, threshold: float) -> dict:
 
 
 def main():
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     import torch
     import yaml
     from src.models.detector import build_head

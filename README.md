@@ -89,6 +89,42 @@ makes the remedy concrete: augmentation that decorrelates channel quality from
 the label (codec re-encoding at varied bitrates, additive noise on spoofs,
 band-limiting of bonafide speech).
 
+### Experiment: channel augmentation
+
+Hypothesis test: if the detector keys on recording quality, decorrelating
+quality from labels at training time (50% of train chunks put through a random
+channel transform — codec round-trip at 16–96 kbps, additive noise at 5–25 dB
+SNR, or band-limiting — applied identically to both classes) should shrink the
+In-the-Wild gap. Implementation: `src/preprocessing/augment.py`; identical
+hyperparameters, speaker split, and eval sets as the baseline.
+
+| Eval set | Baseline EER | Augmented EER |
+|---|---|---|
+| Train-val split | 0.04% (clean val) | 0.16% (augmented val) |
+| ASVspoof5 dev (unseen attacks) | 1.40% | **1.18%** |
+| In-the-Wild | 13.34% | **11.30%** |
+| Gap (ITW − dev) | 11.94 pts | 10.12 pts |
+
+Pre-registered success bar: ITW < ~10% with dev < ~3%. **Outcome: not met** —
+ITW improved by 2.0 points (15% relative) and dev also improved, so the
+augmentation strictly helps, but most of the gap survives. The channel-quality
+shortcut is real and removable, yet it accounts for only a modest share of the
+out-of-domain failure.
+
+Failure-analysis A/B (In-the-Wild, per direction): both error directions drop
+~13.4% → 11.3%. The threshold collapse eases (0.0029 → 0.017, still far from
+the in-domain ~0.66–0.81, so cross-domain calibration remains broken). At the
+speaker level the picture is telling: JFK — the clearest archival-fake case —
+drops out of the top-5 misses, but archival *genuine* voices (Calvin Coolidge,
+Winston Churchill) now enter the top false alarms. The model no longer equates
+degradation with authenticity, but heavily degraded audio of either class
+remains hard — pointing to residual domain mismatch that augmentation of this
+strength does not close. Next levers, in order: stronger/stacked augmentation,
+fine-tuning the SSL front-end, MHFA on frame-level features.
+
+Rationale quality on the augmented run: 50 stratified clips, mean judge score
+**4.73 / 5**. Full report: `reports/eval_report_aug.json`.
+
 ## Setup
 
 ```bash
