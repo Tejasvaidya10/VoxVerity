@@ -44,9 +44,10 @@ The work happened in deliberate order — research first, engineering second:
    wild, per error direction and per speaker.
 3. **Phase 3 — Test the diagnosis** (channel-augmentation experiment): a
    pre-registered hypothesis test of the identified mechanism.
-4. **Phase 4 — Engineer for performance** (fine-tuning, in progress): with the
-   research questions answered, fine-tune the SSL front-end with attention
-   pooling to push the numbers.
+4. **Phase 4 — Engineer for performance** (fine-tuning): with the research
+   questions answered, fine-tune an SSL front-end with attention pooling to
+   push the numbers. Outcome: a decisive, instructive negative result — see
+   the Phase 4 section.
 
 Phases 1–3 are below; each has its checkpoint and full report preserved
 (`checkpoints/`, `reports/`).
@@ -142,18 +143,48 @@ fine-tuning the SSL front-end, MHFA on frame-level features.
 Rationale quality on the augmented run: 50 stratified clips, mean judge score
 **4.73 / 5**. Full report: `reports/eval_report_aug.json`.
 
-## Phase 4 — Fine-tuning (in progress)
+## Phase 4 — Fine-tuning: a decisive negative result
 
-With the research phases complete, this phase is engineering: partial
-fine-tuning of `wav2vec2-base` (CNN extractor + bottom 6 transformer layers
-frozen, top 6 tuned) with a trainable MHFA attention-pooling head replacing
-mean pooling, trained on the Phase-3 augmented manifest. Success bar carried
-forward: In-the-Wild < 10% with dev < 3%, now against the stronger Phase-3
-baseline (11.30 / 1.18). Known limitation, stated up front: this swaps the
-backbone (300M frozen → 95M tuned) and adds attention pooling at once, so the
-comparison does not isolate a single variable — the goal here is a better
-detector, not another controlled experiment. Results will be added when the
-run completes.
+Setup: partial fine-tuning of `wav2vec2-base` (CNN extractor + bottom 6
+transformer layers frozen, top 6 tuned) with a trainable MHFA
+attention-pooling head replacing mean pooling, trained end-to-end on the
+Phase-3 augmented manifest (2 epochs, best val loss 0.0064). Known limitation
+stated up front: backbone swap (300M frozen → 95M tuned) + pooling change land
+together, so this is engineering, not a controlled experiment.
+
+| Eval set | Phase 3 (frozen XLS-R + MLP) | Phase 4 (tuned base + MHFA) |
+|---|---|---|
+| Val (seen attacks A01–A08) | 0.16% | 0.32% |
+| ASVspoof5 dev (unseen attacks) | 1.18% | **6.19%** |
+| In-the-Wild | 11.30% | **24.40%** |
+| Gap (ITW − dev) | 10.12 pts | 18.21 pts |
+
+Success bar (ITW < 10%, dev < 3%): **failed decisively — the fine-tuned model
+is worse everywhere except the attacks it trained on.** Out-of-domain
+operating thresholds collapsed to ~1e-8 (vs 0.92 on seen attacks): the model
+scores nearly everything outside its training distribution as "real".
+
+Interpretation: a textbook overfitting signature (0.32% seen attacks → 6.19%
+unseen attacks → 24.40% in the wild), and an informative one. It implies the
+frozen XLS-R-300m representation was itself a major source of Phases 1–3's
+generalization — its multilingual, varied-channel pretraining carries
+robustness that `wav2vec2-base` (clean English audiobook pretraining) lacks,
+and fine-tuning on one corpus's attacks pulled the representation toward
+exactly the generator fingerprints we did not want to overfit. Practical
+reading at this data/recipe scale: **a large frozen multilingual SSL backbone
+beats a small fine-tuned one**; whoever attempts fine-tuning next should tune
+XLS-R itself (needs more compute than this laptop) with stronger
+regularization toward the pretrained weights, not substitute a smaller
+backbone. The best detector produced by this project remains the Phase-3
+model (`checkpoints/detector_aug.pt`). Full report:
+`reports/eval_report_ft.json`; rationale faithfulness held at 4.41/5.
+
+Per-speaker failure analysis completes the picture: the fine-tuned model's
+worst false alarms are all archival *genuine* recordings — Eisenhower (78%),
+Martin Luther King (75%), Churchill (67%) — i.e. the channel-quality
+confusion Phases 2–3 identified and partially fixed came back amplified,
+consistent with `wav2vec2-base`'s clean-audiobook pretraining treating
+degraded audio as maximally out-of-distribution.
 
 ## Setup
 
