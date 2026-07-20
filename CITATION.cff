@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+title: "VoxVerity: Measuring, Explaining, and Attempting to Close the Audio Deepfake Generalization Gap"
+authors:
+  - family-names: Vaidya
+    given-names: Tejas
+date-released: 2026-07-20
+url: "https://github.com/Tejasvaidya10/VoxVerity"
+repository-code: "https://github.com/Tejasvaidya10/VoxVerity"
+license: MIT
+type: software
+keywords:
+  - audio deepfake detection
+  - anti-spoofing
+  - generalization
+  - explainable AI
+  - self-supervised learning
+  - ASVspoof
+abstract: >
+  A research study measuring the benchmark-to-real-world generalization gap
+  in audio deepfake detection, diagnosing its mechanism via per-speaker
+  failure analysis and an LLM explainability layer, testing a
+  pre-registered hypothesis about the mechanism via training-time channel
+  augmentation, and reporting a decisive negative result from an SSL
+  front-end fine-tuning attempt. Full report in REPORT.md.
