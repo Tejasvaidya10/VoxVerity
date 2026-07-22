@@ -1,9 +1,16 @@
 # VoxVerity
 
-**A research study on why audio deepfake detectors that look great on
-benchmarks collapse on real-world audio — and an attempt to fix it.**
+Why audio deepfake detectors that ace benchmarks collapse on real-world audio — and a pre-registered attempt to fix it.
 
-📄 **[Read the full research report](REPORT.md)** · 🏷️ **[Model card](MODEL_CARD.md)** · 📊 [Raw results](reports/)
+**[Read the full research report](REPORT.md)** · **[Model card](MODEL_CARD.md)** · **[Raw results](reports/)**
+
+## Highlights
+
+- **The gap, measured, not assumed**: a spoofed-speech detector trained on ASVspoof5 is evaluated cold on an independent real-world dataset (In-the-Wild) — no fine-tuning, no cherry-picking.
+- **Failure made legible**: an LLM-based explainability layer turns per-speaker failure analysis into a concrete mechanism — the detector substantially uses **recording channel quality as a proxy for authenticity**.
+- **Pre-registered hypothesis test**: channel-quality augmentation is proposed *before* running it, then tested — a real, partial fix (13.34% to 11.30% EER).
+- **A negative result, reported honestly**: fine-tuning the SSL front-end to close the residual gap *regresses* performance (24.40% EER) — and that failure is itself the finding: the frozen, multilingually-pretrained front-end was a primary source of robustness.
+- **Four sequential phases, each with a preserved report**: measure, diagnose, test the diagnosis, engineer for performance, with `reports/eval_report*.json` kept for every phase.
 
 ## Abstract
 
@@ -34,6 +41,16 @@ Lower is better. EER = equal error rate. See [REPORT.md](REPORT.md) for the
 full per-phase methodology, the pre-registered success criteria, and the
 per-speaker failure analyses behind each number. Recommended model
 artifact: `checkpoints/detector_aug.pt` — see [MODEL_CARD.md](MODEL_CARD.md).
+
+## Table of Contents
+
+- [Project structure](#project-structure)
+- [Repository layout](#repository-layout)
+- [Setup](#setup)
+- [Data](#data)
+- [Reproducing](#reproducing)
+- [Notes for anyone extending this](#notes-for-anyone-extending-this)
+- [License](#license)
 
 ## Project structure
 
