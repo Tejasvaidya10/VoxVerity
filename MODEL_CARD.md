@@ -115,11 +115,12 @@ across domains, not the absolute score.
 - Do not interpret the raw sigmoid score as a calibrated probability
   outside the ASVspoof5 domain; recalibrate for any new deployment
   context.
-- The 11.30% In-the-Wild EER should be treated as an upper bound on
-  quality for this architecture family at this scale — see REPORT.md §9
-  for concrete next steps (fine-tuning the large frozen backbone under
-  regularization, stronger augmentation, cross-domain calibration) before
-  any deployment consideration.
+- The 11.30% In-the-Wild EER is the best result this architecture family
+  has achieved at this scale in the current study, not a guarantee of
+  further improvement — see REPORT.md §9 for concrete next steps
+  (fine-tuning the large frozen backbone under regularization, stronger
+  augmentation, cross-domain calibration) before any deployment
+  consideration.
 - This model has not been evaluated on P2V (not publicly available at
   time of study) or any dataset beyond ASVspoof5 and In-the-Wild; its
   generalization to other real-world distributions (different languages,
