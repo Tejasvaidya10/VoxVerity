@@ -2,7 +2,7 @@
 Phase 4: end-to-end partial fine-tuning of a wav2vec2 backbone with MHFA
 attention pooling. The cached-embedding shortcut used in phases 1-3 does not
 survive fine-tuning; this trainer reads audio and backprops through the top
-transformer layers. See docs/superpowers/specs/2026-07-18-finetune-design.md.
+transformer layers. See REPORT.md section 6.
 """
 
 import argparse

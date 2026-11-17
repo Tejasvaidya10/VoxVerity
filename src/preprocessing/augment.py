@@ -3,8 +3,7 @@ Channel augmentation: decorrelate recording quality from labels.
 
 Each transform simulates a real-world channel (lossy codec, noise floor,
 band-limited link) and is applied label-independently, so channel quality
-stops predicting bonafide-vs-spoof. See
-docs/superpowers/specs/2026-07-17-channel-augmentation-design.md.
+stops predicting bonafide-vs-spoof. See REPORT.md section 5.
 """
 
 import argparse
