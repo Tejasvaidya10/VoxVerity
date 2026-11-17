@@ -1,8 +1,7 @@
 """
 Given a detector's score and any available evidence (e.g. attention weights
 if using MHFAHead, or simple acoustic descriptors), ask an LLM to produce a
-plain-language rationale for the flagged classification. This is the piece
-that reuses your Truist RAG-eval / multi-agent experience: the LLM here acts
+plain-language rationale for the flagged classification. The LLM here acts
 as an explanation-generation agent, and a second call (see score_rationale)
 acts as a judge scoring whether the explanation is faithful to the evidence.
 """
