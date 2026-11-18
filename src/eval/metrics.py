@@ -52,3 +52,16 @@ def summarize_scores(bonafide_scores: np.ndarray, spoof_scores: np.ndarray) -> d
         "n_bonafide": len(bonafide_scores),
         "n_spoof": len(spoof_scores),
     }
+
+
+def fast_eer(bonafide_scores: np.ndarray, spoof_scores: np.ndarray) -> tuple:
+    """Same result as compute_eer (same thresholds, same tie-breaking, same
+    float arithmetic), vectorized with searchsorted: O(n log n) instead of
+    O(n^2), fast enough to bootstrap. compute_eer stays the reference."""
+    b = np.sort(np.asarray(bonafide_scores))
+    s = np.sort(np.asarray(spoof_scores))
+    thresholds = np.unique(np.concatenate([b, s]))
+    fars = (len(b) - np.searchsorted(b, thresholds, side="left")) / len(b)
+    frrs = np.searchsorted(s, thresholds, side="left") / len(s)
+    idx = np.argmin(np.abs(fars - frrs))
+    return float((fars[idx] + frrs[idx]) / 2), float(thresholds[idx])
