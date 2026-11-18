@@ -52,9 +52,12 @@ def load_variants(scores_root: Path) -> dict:
         if itw is None:
             continue
         dev = _find(d, "asvspoof5_dev")
-        side = read_sidecar(Path(str(itw) + ".meta.json")) or {}
+        for f in (itw, dev):
+            if f is not None and read_sidecar(Path(str(f) + ".meta.json")) is None:
+                raise ValueError(f"no provenance sidecar for {f}; every Phase 5 result must record its settings")
+        side = read_sidecar(Path(str(itw) + ".meta.json"))
         variants[d.name] = {"itw": read_scores(itw), "dev": read_scores(dev) if dev else None,
-                            "settings": side.get("preprocessing", "unrecorded")}
+                            "settings": side["preprocessing"]}
     if "baseline" not in variants:
         raise ValueError(f"no baseline variant under {scores_root}")
     return variants
@@ -189,11 +192,22 @@ def run_analysis(scores_root: Path, measurements_dir: Path, raw_manifest_itw: Pa
     itw_clips, train_clips, dev_clips = read("in_the_wild_clips.csv"), read("asvspoof5_train_clips.csv"), \
         read("asvspoof5_dev_clips.csv")
     itw_wmeas = read("in_the_wild_windows.csv")
+    if itw_clips is None or train_clips is None or itw_wmeas is None:
+        raise ValueError(f"measurements missing under {meas_dir}")
+    for name, df, keys in (("in_the_wild_clips", itw_clips, ["clip_id"]),
+                           ("asvspoof5_train_clips", train_clips, ["clip_id"]),
+                           ("asvspoof5_dev_clips", dev_clips, ["clip_id"]),
+                           ("in_the_wild_windows", itw_wmeas, ["clip_id", "chunk_idx"]),
+                           ("baseline ITW scores", base_itw, ["clip_id", "chunk_idx"])):
+        if df is not None and df.duplicated(subset=keys).any():
+            raise ValueError(f"duplicate rows in {name} ({int(df.duplicated(subset=keys).sum())})")
     itw_windows = base_itw.merge(itw_wmeas, on=["clip_id", "chunk_idx"], how="left")
+    unmeasured = int(itw_windows["pad_fraction"].isna().sum())
+    if len(itw_windows) != len(base_itw) or unmeasured:
+        raise ValueError(f"{unmeasured} unmeasured baseline ITW windows; rerun the measurements")
     itw_windows = itw_windows.assign(err=errors_at(itw_windows, threshold))
 
-    summary = {"threshold": threshold, "variants": {},
-               "unmeasured_windows": int(itw_windows["pad_fraction"].isna().sum())}
+    summary = {"threshold": threshold, "variants": {}, "unmeasured_windows": unmeasured}
     for name, v in variants.items():
         s = v["settings"]
         speech_only = isinstance(s, dict) and s.get("vad_mode") == "all"

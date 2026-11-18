@@ -104,3 +104,31 @@ def test_summary_records_variant_settings_and_predictions(tmp_path):
     assert "itw_eer_pct" in on_disk["clip_mean"]
     assert any((tmp_path / "out" / "plots").glob("*.png"))
     assert (tmp_path / "out" / "listening" / "listening.csv").exists()
+
+
+def test_duplicate_measurement_rows_rejected(tmp_path):
+    import pytest
+    sc, meas, raw_manifest = _tree(tmp_path)
+    p = meas / "in_the_wild_clips.csv"
+    lines = p.read_text().splitlines()
+    p.write_text("\n".join(lines + [lines[1]]) + "\n")
+    with pytest.raises(ValueError, match="duplicate"):
+        run_analysis(sc, meas, raw_manifest, tmp_path / "out", n_boot=5)
+
+
+def test_unmeasured_windows_rejected(tmp_path):
+    import pytest
+    sc, meas, raw_manifest = _tree(tmp_path)
+    p = meas / "in_the_wild_windows.csv"
+    lines = p.read_text().splitlines()
+    p.write_text("\n".join(lines[:-1]) + "\n")
+    with pytest.raises(ValueError, match="unmeasured"):
+        run_analysis(sc, meas, raw_manifest, tmp_path / "out", n_boot=5)
+
+
+def test_missing_score_sidecar_rejected(tmp_path):
+    import pytest
+    sc, meas, raw_manifest = _tree(tmp_path)
+    (sc / "pad-repeat" / "in_the_wild__pad-repeat_chunks_scores.csv.meta.json").unlink()
+    with pytest.raises(ValueError, match="sidecar"):
+        run_analysis(sc, meas, raw_manifest, tmp_path / "out", n_boot=5)

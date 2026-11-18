@@ -153,6 +153,9 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
 
     out_audio_dir.mkdir(parents=True, exist_ok=True)
     out_manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    # record provenance before the first window is written, so a run killed
+    # midway can be resumed with the same settings (rewritten at the end)
+    write_sidecar(out_audio_dir / "_meta.json", {**current, "stage": "preprocess", "status": "in progress"})
 
     with open(manifest_path) as f:
         rows = list(csv.DictReader(f))

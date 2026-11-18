@@ -113,3 +113,21 @@ def test_characterize_parallel_matches_serial(tmp_path):
     characterize_manifest(m, "ds", tmp_path / "par", S, workers=2)
     key = lambda p: sorted(csv.DictReader(open(p)), key=lambda r: r["clip_id"])
     assert key(tmp_path / "serial" / "ds_clips.csv") == key(tmp_path / "par" / "ds_clips.csv")
+
+
+def test_characterize_refuses_concurrent_run(tmp_path):
+    import os
+    out = tmp_path / "meas"
+    out.mkdir()
+    (out / "ds_measurements.lock").write_text(str(os.getpid()))  # a live process holds it
+    with pytest.raises(RuntimeError, match="already running"):
+        characterize_manifest(_manifest(tmp_path, ["short"]), "ds", out, S, workers=1)
+
+
+def test_characterize_takes_over_stale_lock(tmp_path):
+    out = tmp_path / "meas"
+    out.mkdir()
+    (out / "ds_measurements.lock").write_text("999999")  # no such process
+    characterize_manifest(_manifest(tmp_path, ["short"]), "ds", out, S, workers=1)
+    assert not (out / "ds_measurements.lock").exists()
+    assert len(list(csv.DictReader(open(out / "ds_clips.csv")))) == 1

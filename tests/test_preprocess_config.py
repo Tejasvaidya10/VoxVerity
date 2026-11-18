@@ -84,3 +84,30 @@ def test_refuses_legacy_dir_unless_allowed(tmp_path):
 def test_unknown_vad_mode_rejected(tmp_path):
     with pytest.raises(ValueError, match="vad_mode"):
         _run(tmp_path, vad_mode="aggressive")
+
+
+def test_resume_after_kill_mid_first_run(tmp_path, monkeypatch):
+    import src.preprocessing.preprocess as pp
+    m = tmp_path / "in.csv"
+    long_wav = SHORT.parent / "long.wav"
+    with open(m, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=["path", "label", "speaker_id", "dataset_source", "attack_type"])
+        w.writeheader()
+        for p in (SHORT, long_wav):
+            w.writerow({"path": str(p), "label": "bonafide", "speaker_id": "s", "dataset_source": "x",
+                        "attack_type": "-"})
+    real_load, calls = pp.load_and_resample, []
+
+    def dying_load(path, sr):
+        calls.append(path)
+        if len(calls) == 2:
+            raise KeyboardInterrupt  # killed after the first clip's windows were written
+        return real_load(path, sr)
+
+    monkeypatch.setattr(pp, "load_and_resample", dying_load)
+    with pytest.raises(KeyboardInterrupt):
+        process_manifest(m, tmp_path / "audio", tmp_path / "chunks.csv", 16000, 4.0, 2, chunk_stride_seconds=2.0)
+    assert any((tmp_path / "audio").glob("*.wav"))
+    monkeypatch.setattr(pp, "load_and_resample", real_load)
+    process_manifest(m, tmp_path / "audio", tmp_path / "chunks.csv", 16000, 4.0, 2, chunk_stride_seconds=2.0)
+    assert len(list(csv.DictReader(open(tmp_path / "chunks.csv")))) == 1 + 4

@@ -106,3 +106,33 @@ def test_p6_rule():
     flat = _inputs(variant_eers={"pad-repeat": {"itw": 10.9, "dev": 1.2}, "vad-all": {"itw": 11.5, "dev": 1.2}},
                    clip_level_itw_eer=10.8)
     assert evaluate_predictions(flat)["P6"]["holds"]
+
+
+def test_paired_bootstrap_rejects_mismatched_clip_sets():
+    a = pd.DataFrame({"clip_id": ["z", "a", "a", "b"], "v": [9.0, 1.0, 1.0, 2.0]})
+    b = pd.DataFrame({"clip_id": ["a", "b"], "v": [1.0, 2.0]})
+    with pytest.raises(ValueError, match="different clips"):
+        paired_bootstrap(a, b, lambda d: d["v"].mean(), n=10)
+
+
+def test_p6_uses_only_preregistered_interventions():
+    missing = _inputs(variant_eers={"pad-repeat": {"itw": 10.9, "dev": 1.2}}, clip_level_itw_eer=10.8)
+    r = evaluate_predictions(missing)["P6"]
+    assert r["holds"] is False and "missing" in r["reason"]
+    extra = _inputs(variant_eers={"pad-repeat": {"itw": 10.9, "dev": 1.2}, "vad-all": {"itw": 11.5, "dev": 1.2},
+                                  "exploratory-combo": {"itw": 7.0, "dev": 1.2}}, clip_level_itw_eer=10.8)
+    assert evaluate_predictions(extra)["P6"]["holds"]  # exploratory variant ignored
+
+
+def test_p5_holds_when_snr_drives_errors():
+    x = _inputs()
+    clips = x.itw_clips.copy()
+    w = x.itw_windows.copy()
+    rng = np.random.default_rng(3)
+    clips["snr_db"] = rng.uniform(0, 60, len(clips))
+    snr = dict(zip(clips["clip_id"], clips["snr_db"]))
+    s = w["clip_id"].map(snr)
+    wrong = ((w["label"] == "spoof") & (s < 20)) | ((w["label"] == "bonafide") & (s > 40))
+    w["score"] = np.where(w["label"] == "spoof", np.where(wrong, 0.2, 0.8), np.where(wrong, 0.8, 0.2))
+    x.itw_clips, x.itw_windows = clips, w
+    assert evaluate_predictions(x)["P5"]["holds"]

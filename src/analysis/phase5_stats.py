@@ -29,6 +29,7 @@ def _clip_index(clip_ids: pd.Series, categories=None):
     codes = pd.Categorical(clip_ids, categories=categories).codes
     n_clips = len(categories) if categories is not None else codes.max() + 1
     order = np.argsort(codes, kind="stable")
+    order = order[codes[order] >= 0]  # rows whose clip is outside `categories` never map
     counts = np.bincount(codes[codes >= 0], minlength=n_clips)
     starts = np.r_[0, np.cumsum(counts)[:-1]]
     return order, starts, counts
@@ -54,7 +55,11 @@ def paired_bootstrap(dfa: pd.DataFrame, dfb: pd.DataFrame,
                      stat_fn: Callable[[pd.DataFrame], float],
                      n: int = 1000, seed: int = SEED) -> tuple:
     """CI of stat_fn(b) - stat_fn(a), drawing the same clips for both."""
-    cats = np.array(sorted(set(dfa["clip_id"]) & set(dfb["clip_id"])))
+    ca, cb = set(dfa["clip_id"]), set(dfb["clip_id"])
+    if ca != cb:
+        raise ValueError(f"paired bootstrap over different clips: {len(ca - cb)} only in a, "
+                         f"{len(cb - ca)} only in b (a stage lost clips)")
+    cats = np.array(sorted(ca))
     ia = _clip_index(dfa["clip_id"], cats)
     ib = _clip_index(dfb["clip_id"], cats)
     rng = np.random.default_rng(seed)
@@ -167,12 +172,17 @@ def _p5(x: Phase5Inputs, w: pd.DataFrame) -> dict:
                     miss_diff=miss, miss_ci=[mlo, mhi], fa_diff=fa, fa_ci=[flo, fhi])
 
 
+PREREGISTERED_VARIANTS = ("pad-repeat", "vad-all")
+
+
 def _p6(x: Phase5Inputs) -> dict:
-    deltas = {k: v["itw"] - x.baseline_eers["itw"] for k, v in x.variant_eers.items()}
-    if not np.isnan(x.clip_level_itw_eer):
-        deltas["clip-mean"] = x.clip_level_itw_eer - x.baseline_eers["itw"]
-    if not deltas:
-        return _verdict(False, "no interventions to compare")
+    missing = [k for k in PREREGISTERED_VARIANTS if k not in x.variant_eers]
+    if np.isnan(x.clip_level_itw_eer):
+        missing.append("clip-mean")
+    if missing:
+        return _verdict(False, f"pre-registered intervention(s) missing: {', '.join(missing)}")
+    deltas = {k: x.variant_eers[k]["itw"] - x.baseline_eers["itw"] for k in PREREGISTERED_VARIANTS}
+    deltas["clip-mean"] = x.clip_level_itw_eer - x.baseline_eers["itw"]
     moved = {k: d for k, d in deltas.items() if abs(d) >= GAP_POINTS}
     reason = ("no intervention moved ITW EER by >= 1 pt (remaining gap most likely unseen attacks; inference)"
               if not moved else f"moved by >= 1 pt: {', '.join(f'{k} {d:+.2f}' for k, d in moved.items())}")

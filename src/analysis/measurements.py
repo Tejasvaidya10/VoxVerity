@@ -7,6 +7,7 @@ detector errors against them.
 
 import csv
 import math
+import os
 from dataclasses import asdict
 from multiprocessing import Pool
 from pathlib import Path
@@ -129,8 +130,38 @@ def _measure_row(args):
         return None, None, f"{row['path']}: {e}"
 
 
+def _acquire_lock(lock: Path) -> None:
+    """One writer per dataset: a second process appending to the same CSVs
+    would duplicate rows. A lock left by a dead process is taken over."""
+    if lock.exists():
+        try:
+            pid = int(lock.read_text().strip())
+            os.kill(pid, 0)
+            alive = True
+        except ProcessLookupError:
+            alive = False
+        except (ValueError, PermissionError):
+            alive = True
+        if alive:
+            raise RuntimeError(f"measurements already running for {lock.name} (pid {lock.read_text().strip()}); "
+                               "wait for it or kill it first")
+    lock.write_text(str(os.getpid()))
+
+
 def characterize_manifest(manifest_path: Path, dataset: str, out_dir: Path,
                           settings: PreprocessSettings, workers: int = 6) -> None:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    lock = out_dir / f"{dataset}_measurements.lock"
+    _acquire_lock(lock)
+    try:
+        _characterize(manifest_path, dataset, out_dir, settings, workers)
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _characterize(manifest_path: Path, dataset: str, out_dir: Path,
+                  settings: PreprocessSettings, workers: int) -> None:
     """Writes <dataset>_clips.csv and <dataset>_windows.csv. Resumable: a
     clip's window rows are written before its clip row, so the clip row is
     the commit marker; on restart, half-written window rows are dropped and

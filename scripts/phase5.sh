@@ -106,13 +106,19 @@ stage baseline_preprocess baseline_preprocess
 
 # measurements need only raw audio: run them alongside the GPU work
 ( stage measurements measure ) & MEASURE_PID=$!
+# if the driver stops early, stop the measurements too (a rerun would otherwise
+# race them; characterize also refuses to run while another holds its lock)
+trap 'if kill -0 $MEASURE_PID 2>/dev/null; then pkill -TERM -P $MEASURE_PID; kill $MEASURE_PID 2>/dev/null; fi' EXIT
 
 stage baseline_extract baseline_extract
 stage baseline_score score baseline asvspoof5_dev_slice in_the_wild
 
 if [[ -z $LIMIT ]]; then
-  stage gate $PY scripts/check_gate.py --scores "$R/scores/baseline/in_the_wild_chunks_scores.csv" \
-        --reference reports/eval_report_aug.json
+  # no marker: the gate re-checks the current baseline scores on every run
+  log "STAGE gate START"
+  if ! $PY scripts/check_gate.py --scores "$R/scores/baseline/in_the_wild_chunks_scores.csv" \
+       --reference reports/eval_report_aug.json; then log "STAGE gate FAILED"; exit 1; fi
+  log "STAGE gate DONE"
 else
   log "GATE skipped in dry run"
 fi
