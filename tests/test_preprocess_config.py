@@ -83,4 +83,4 @@ def test_refuses_legacy_dir_unless_allowed(tmp_path):
 
 def test_non_default_modes_not_yet_implemented(tmp_path):
     with pytest.raises(NotImplementedError):
-        _run(tmp_path, pad_mode="repeat")
+        _run(tmp_path, vad_mode="all")

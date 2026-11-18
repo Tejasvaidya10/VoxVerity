@@ -79,13 +79,19 @@ def vad_trim(audio: np.ndarray, sr: int, aggressiveness: int) -> np.ndarray:
 
 
 def chunk_audio(audio: np.ndarray, sr: int, chunk_seconds: float,
-                stride_seconds: float | None = None) -> list:
+                stride_seconds: float | None = None, pad_mode: str = "zero") -> list:
     """Sliding-window chunking. Overlap keeps boundary artifacts fully
     interior to at least one window (generative glitches often sit at
-    seams a hard slice would bisect)."""
+    seams a hard slice would bisect). Clips shorter than a window are
+    zero-filled (default) or, with pad_mode="repeat", tiled from the start."""
+    if pad_mode not in ("zero", "repeat"):
+        raise ValueError(f"unknown pad_mode {pad_mode!r}")
     chunk_len = int(sr * chunk_seconds)
     stride = int(sr * (stride_seconds if stride_seconds else chunk_seconds))
     if len(audio) <= chunk_len:
+        if pad_mode == "repeat" and len(audio) > 0:
+            reps = -(-chunk_len // len(audio))  # ceil
+            return [np.tile(audio, reps)[:chunk_len].astype(np.float32)]
         # pad short clips to full chunk length
         padded = np.zeros(chunk_len, dtype=np.float32)
         padded[:len(audio)] = audio
@@ -109,8 +115,8 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
     different settings or a different input manifest."""
     settings = PreprocessSettings(sample_rate, chunk_seconds, chunk_stride_seconds,
                                   vad_aggressiveness, vad_mode, pad_mode, vad_hangover_ms)
-    if pad_mode != "zero" or vad_mode != "edges":
-        raise NotImplementedError(f"pad_mode={pad_mode!r} / vad_mode={vad_mode!r}")
+    if vad_mode != "edges":
+        raise NotImplementedError(f"vad_mode={vad_mode!r}")
 
     input_sha = sha256_file(manifest_path)
     current = {"settings": asdict(settings), "input_manifest_sha256": input_sha}
@@ -129,7 +135,8 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
         try:
             audio = load_and_resample(row["path"], sample_rate)
             audio = vad_trim(audio, sample_rate, vad_aggressiveness)
-            chunks = chunk_audio(audio, sample_rate, chunk_seconds, chunk_stride_seconds)
+            chunks = chunk_audio(audio, sample_rate, chunk_seconds, chunk_stride_seconds,
+                                 pad_mode=pad_mode)
         except Exception as e:
             print(f"Skipping {row['path']}: {e}")
             continue
