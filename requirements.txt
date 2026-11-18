@@ -12,3 +12,4 @@ numpy
 pyyaml
 pytest
 scipy
+matplotlib
