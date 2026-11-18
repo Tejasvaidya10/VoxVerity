@@ -14,6 +14,9 @@ preprocessing:
   chunk_seconds: 4.0
   chunk_stride_seconds: 2.0   # sliding-window stride; = chunk_seconds for no overlap
   vad_aggressiveness: 2   # 0-3, higher = more aggressive silence trimming
+  pad_mode: "zero"        # zero | repeat  (how clips shorter than a window are filled)
+  vad_mode: "edges"       # edges | all    (trim only leading/trailing silence, or every pause)
+  vad_hangover_ms: 90     # vad_mode=all only: speech kept on each side of a voiced run
 
 features:
   model_name: "facebook/wav2vec2-xls-r-300m"
