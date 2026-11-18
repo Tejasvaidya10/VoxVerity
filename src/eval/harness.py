@@ -23,7 +23,9 @@ import torch
 import yaml
 
 from src.models.detector import build_head
+from src.eval.clip_scores import SCORE_COLUMNS, clip_id_from_chunk_path
 from src.eval.metrics import summarize_scores
+from src.provenance import ProvenanceMismatch, read_sidecar, sha256_file, write_sidecar
 from src.explain.acoustic_evidence import compute_evidence_from_file
 from src.explain.rationale_agent import DetectionEvidence, generate_rationale, score_rationale
 
@@ -88,17 +90,67 @@ def score_manifest_ft(model, manifest_path: Path, device: str) -> dict:
 
 
 def run_generalization_eval(config: dict, model, manifests: list, features_dir: Path,
-                            device: str, finetuned: bool = False) -> dict:
+                            device: str, finetuned: bool = False,
+                            features_dirs: list | None = None) -> dict:
+    """features_dirs, when given, holds one features folder per manifest (same
+    order); otherwise every manifest is scored from features_dir."""
     results = {}
-    for manifest_path in manifests:
+    for i, manifest_path in enumerate(manifests):
         dataset_name = Path(manifest_path).stem
         print(f"Scoring {dataset_name}...", flush=True)
         if finetuned:
             results[dataset_name] = score_manifest_ft(model, Path(manifest_path), device)
         else:
-            results[dataset_name] = score_manifest(model, Path(manifest_path), features_dir, device)
+            fdir = Path(features_dirs[i]) if features_dirs else features_dir
+            results[dataset_name] = score_manifest(model, Path(manifest_path), fdir, device)
         print(f"  EER: {results[dataset_name]['metrics']['eer_pct']:.2f}%", flush=True)
     return results
+
+
+LEGACY = "unrecorded (pre-Phase 5)"
+
+
+def collect_provenance(manifest_path: Path, features_dir: Path | None) -> dict:
+    """Settings that produced this dataset's windows (from the manifest's
+    sidecar) and features (from the features folder's sidecar). Stops if the
+    two disagree or the features came from a different manifest."""
+    manifest_path = Path(manifest_path)
+    side = read_sidecar(Path(str(manifest_path) + ".meta.json"))
+    feats = read_sidecar(Path(features_dir) / "_meta.json") if features_dir else None
+    manifest_sha = sha256_file(manifest_path)
+    if side is None:
+        print(f"WARNING: {manifest_path} has no provenance sidecar; recording as {LEGACY!r}")
+    if feats is not None:
+        if side is not None and feats.get("preprocessing") != side["settings"]:
+            raise ProvenanceMismatch(
+                f"preprocessing settings differ between {manifest_path} and {features_dir}: "
+                f"{side['settings']} vs {feats.get('preprocessing')}")
+        if feats.get("input_manifest_sha256") != manifest_sha:
+            raise ProvenanceMismatch(
+                f"features in {features_dir} were extracted from a different manifest than {manifest_path}")
+    return {"preprocessing": side["settings"] if side else LEGACY,
+            "input_manifest_sha256": manifest_sha, "features": feats}
+
+
+def write_scores(manifest_path: Path, per_file_scores: dict, out_dir: Path,
+                 provenance: dict) -> Path:
+    """Per-window scores in manifest order (scored rows only), plus a sidecar
+    recording the provenance that produced them."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{Path(manifest_path).stem}_scores.csv"
+    with open(manifest_path) as f:
+        rows = [r for r in csv.DictReader(f) if r["path"] in per_file_scores]
+    with open(out, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SCORE_COLUMNS)
+        w.writeheader()
+        for r in rows:
+            w.writerow({"path": r["path"], "clip_id": clip_id_from_chunk_path(r["path"]),
+                        "chunk_idx": r.get("chunk_idx", Path(r["path"]).stem.rsplit("_", 1)[-1]),
+                        "label": r["label"], "speaker_id": r["speaker_id"],
+                        "score": repr(float(per_file_scores[r["path"]]))})
+    write_sidecar(Path(str(out) + ".meta.json"), provenance)
+    return out
 
 
 def run_rationale_eval(config: dict, generalization_results: dict, sample_size: int) -> list:
@@ -166,16 +218,23 @@ def main():
                         help="FinetuneModel checkpoint scored end-to-end from audio")
     parser.add_argument("--manifests", nargs="+", required=True,
                          help="First manifest should be the in-domain (ASVspoof5) test set")
-    parser.add_argument("--features-dir", type=Path, default=None,
-                        help="required with --checkpoint; unused with --finetuned-checkpoint")
+    feats_group = parser.add_mutually_exclusive_group()
+    feats_group.add_argument("--features-dir", type=Path, default=None,
+                             help="one features folder for all manifests (with --checkpoint)")
+    feats_group.add_argument("--features-dirs", type=Path, nargs="+", default=None,
+                             help="one features folder per manifest, same order (with --checkpoint)")
+    parser.add_argument("--scores-out", type=Path, default=None,
+                        help="write per-window <dataset>_scores.csv (+ provenance sidecar) here")
     parser.add_argument("--out-report", type=Path, default=Path("reports/eval_report.json"))
     parser.add_argument("--skip-rationales", action="store_true")
     args = parser.parse_args()
 
     if bool(args.checkpoint) == bool(args.finetuned_checkpoint):
         parser.error("provide exactly one of --checkpoint / --finetuned-checkpoint")
-    if args.checkpoint and not args.features_dir:
-        parser.error("--features-dir is required with --checkpoint")
+    if args.checkpoint and not (args.features_dir or args.features_dirs):
+        parser.error("--features-dir or --features-dirs is required with --checkpoint")
+    if args.features_dirs and len(args.features_dirs) != len(args.manifests):
+        parser.error("--features-dirs needs exactly one folder per manifest")
 
     with open(args.config) as f:
         config = yaml.safe_load(f)
@@ -189,14 +248,27 @@ def main():
     else:
         model = load_model(config, args.checkpoint, device)
 
+    finetuned = args.finetuned_checkpoint is not None
+    per_manifest_feats = [None if finetuned else
+                          (args.features_dirs[i] if args.features_dirs else args.features_dir)
+                          for i in range(len(args.manifests))]
+    provenance = {Path(m).stem: collect_provenance(Path(m), per_manifest_feats[i])
+                  for i, m in enumerate(args.manifests)}
+
     generalization_results = run_generalization_eval(
         config, model, args.manifests, args.features_dir, device,
-        finetuned=args.finetuned_checkpoint is not None)
+        finetuned=finetuned, features_dirs=args.features_dirs)
+
+    if args.scores_out:
+        for m in args.manifests:
+            name = Path(m).stem
+            print(f"Scores: {write_scores(Path(m), generalization_results[name]['per_file_scores'], args.scores_out, provenance[name])}")
 
     report = {
         "generalization": {
             name: r["metrics"] for name, r in generalization_results.items()
         },
+        "provenance": provenance,
     }
 
     # report the gap between in-domain (first manifest) and each out-of-domain set
