@@ -52,21 +52,31 @@ def load_and_resample(path: str, target_sr: int) -> np.ndarray:
     return audio
 
 
-def vad_trim(audio: np.ndarray, sr: int, aggressiveness: int) -> np.ndarray:
-    """Drop leading/trailing silence using WebRTC VAD. Operates on 16kHz, 16-bit PCM."""
+VAD_FRAME_MS = 30
+
+
+def voiced_flags(audio: np.ndarray, sr: int, aggressiveness: int) -> list:
+    """WebRTC VAD decision per 30 ms frame. Note: the loop never examines
+    the clip's final frame (kept as-is: Phases 1-4 ran this way, and the
+    regression test pins it)."""
     assert sr == 16000, "webrtcvad requires 16kHz input"
     vad = webrtcvad.Vad(aggressiveness)
-    frame_ms = 30
-    frame_len = int(sr * frame_ms / 1000)
+    frame_len = int(sr * VAD_FRAME_MS / 1000)
     pcm16 = (audio * 32768).astype(np.int16).tobytes()
 
-    voiced_frames = []
+    flags = []
     for start in range(0, len(pcm16) - frame_len * 2, frame_len * 2):
         frame = pcm16[start:start + frame_len * 2]
         if len(frame) < frame_len * 2:
             break
-        is_voiced = vad.is_speech(frame, sr)
-        voiced_frames.append(is_voiced)
+        flags.append(vad.is_speech(frame, sr))
+    return flags
+
+
+def vad_trim(audio: np.ndarray, sr: int, aggressiveness: int) -> np.ndarray:
+    """Drop leading/trailing silence using WebRTC VAD. Operates on 16kHz, 16-bit PCM."""
+    voiced_frames = voiced_flags(audio, sr, aggressiveness)
+    frame_len = int(sr * VAD_FRAME_MS / 1000)
 
     if not any(voiced_frames):
         return audio  # fall back to original if VAD finds nothing
@@ -76,6 +86,23 @@ def vad_trim(audio: np.ndarray, sr: int, aggressiveness: int) -> np.ndarray:
     start_sample = first * frame_len
     end_sample = min((last + 1) * frame_len, len(audio))
     return audio[start_sample:end_sample]
+
+
+def vad_keep_speech(audio: np.ndarray, sr: int, aggressiveness: int,
+                    hangover_ms: int) -> np.ndarray:
+    """vad_mode="all": keep voiced frames plus hangover_ms on each side of
+    every voiced run, concatenated in order (cuts every pause, including
+    the edges). Falls back to the original audio if nothing is voiced."""
+    flags = voiced_flags(audio, sr, aggressiveness)
+    if not any(flags):
+        return audio
+    frame_len = int(sr * VAD_FRAME_MS / 1000)
+    h = round(hangover_ms / VAD_FRAME_MS)
+    voiced = np.flatnonzero(flags)
+    keep = np.zeros(len(flags), dtype=bool)
+    for i in voiced:
+        keep[max(0, i - h):i + h + 1] = True
+    return np.concatenate([audio[i * frame_len:(i + 1) * frame_len] for i in np.flatnonzero(keep)])
 
 
 def chunk_audio(audio: np.ndarray, sr: int, chunk_seconds: float,
@@ -115,8 +142,8 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
     different settings or a different input manifest."""
     settings = PreprocessSettings(sample_rate, chunk_seconds, chunk_stride_seconds,
                                   vad_aggressiveness, vad_mode, pad_mode, vad_hangover_ms)
-    if vad_mode != "edges":
-        raise NotImplementedError(f"vad_mode={vad_mode!r}")
+    if vad_mode not in ("edges", "all"):
+        raise ValueError(f"unknown vad_mode {vad_mode!r}")
 
     input_sha = sha256_file(manifest_path)
     current = {"settings": asdict(settings), "input_manifest_sha256": input_sha}
@@ -134,7 +161,10 @@ def process_manifest(manifest_path: Path, out_audio_dir: Path, out_manifest_path
     for i, row in enumerate(rows):
         try:
             audio = load_and_resample(row["path"], sample_rate)
-            audio = vad_trim(audio, sample_rate, vad_aggressiveness)
+            if vad_mode == "all":
+                audio = vad_keep_speech(audio, sample_rate, vad_aggressiveness, vad_hangover_ms)
+            else:
+                audio = vad_trim(audio, sample_rate, vad_aggressiveness)
             chunks = chunk_audio(audio, sample_rate, chunk_seconds, chunk_stride_seconds,
                                  pad_mode=pad_mode)
         except Exception as e:

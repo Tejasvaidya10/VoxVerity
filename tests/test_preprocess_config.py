@@ -81,6 +81,6 @@ def test_refuses_legacy_dir_unless_allowed(tmp_path):
     _run(tmp_path, allow_legacy_dir=True)
 
 
-def test_non_default_modes_not_yet_implemented(tmp_path):
-    with pytest.raises(NotImplementedError):
-        _run(tmp_path, vad_mode="all")
+def test_unknown_vad_mode_rejected(tmp_path):
+    with pytest.raises(ValueError, match="vad_mode"):
+        _run(tmp_path, vad_mode="aggressive")
